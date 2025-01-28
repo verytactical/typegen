@@ -1,5 +1,5 @@
-import { isLeft } from "./util/either";
-import { Async, catchInternalErrorsAsync, runAsync } from "./util/process";
+import { isLeft } from "./either";
+import { Async, catchInternalErrorsAsync, runAsync } from "./process";
 
 export async function runCli(compile: (argv: string[]) => Async<void>) {
     const result = await runAsync(

@@ -1,8 +1,8 @@
 import * as t from "@babel/types";
-import { makeVisitor } from "./util/tricks";
-import { filterUndefined } from "./util/array";
+import { makeVisitor } from "../util/tricks";
+import { filterUndefined } from "../util/array";
 import * as A from './ast';
-import { err, map, Sync } from "./util/process";
+import { err, map, Sync } from "../util/process";
 
 export function* compileTypescript(node: t.File): Sync<A.TypeDecl[]> {
     return yield* compileDecls(node.program.body);

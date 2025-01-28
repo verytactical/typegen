@@ -1,6 +1,8 @@
 {
+    "include": ["src/**/*"],
     "compilerOptions": {
-      "noEmit": true,
+      "outDir": "./dist",
+      // "noEmit": true,
 
       /* Visit https://aka.ms/tsconfig.json to read more about this file */
       /* Basic Options */

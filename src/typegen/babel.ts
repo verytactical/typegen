@@ -1,5 +1,5 @@
 import { parse, ParserOptions } from "@babel/parser";
-import { err, Sync } from "./util/process";
+import { err, Sync } from "../util/process";
 import * as t from "@babel/types";
 
 export function* parseTypeScript(source: string): Sync<t.File | undefined> {

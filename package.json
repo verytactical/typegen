@@ -14,5 +14,18 @@
     "fast-check": "^3.23.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
+  },
+  "files": [
+    "dist/**/*",
+    "bin/**/*",
+    "!src/**/*",
+    "!example/**/*",
+    "!**/*.infra.*",
+    "!**/*.spec.js",
+    "!**/*.spec.d.ts",
+    "!**/*.tsbuildinfo"
+  ],
+  "bin": {
+    "typegen": "bin/typegen.js"
   }
 }

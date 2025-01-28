@@ -2,7 +2,6 @@ import { join } from "path";
 import { readFile } from "fs/promises";
 import { parseTypeScript } from "./babel";
 import { compileTypescript } from "./decode";
-import { runCli } from "./cli";
 
 export async function* main(argv: string[]) {
     const fullPath = join(__dirname, '..', 'example', 'ast.ts');
@@ -14,6 +13,3 @@ export async function* main(argv: string[]) {
     const result = yield* compileTypescript(ast);
     console.log(JSON.stringify(result, null, 4));
 }
-
-// FIXME
-runCli(main);
