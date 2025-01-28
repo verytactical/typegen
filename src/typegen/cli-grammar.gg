@@ -1,0 +1,27 @@
+grammar = #cli<Compile>;
+Compile = pattern:pattern;
+pattern "PATTERN" = immediate;
+
+// we expect any cli to support -h and -v
+cli<T> = Generic<T> / NoParams;
+Generic<T> = check:end args:(T / Help / Version);
+NoParams "no parameters" = end param<"">;
+Help "--help" = param<"--help" / "-h" / "-?">;
+Version "--version" = param<"--version" / "-v">;
+
+// end of parameters
+end "start" = Separator;
+
+// parameter passed without a flag
+immediate = param<!"-" @rawImmediate>;
+rawImmediate = $((!Separator .)+);
+
+// immediate parameters after "--" can start with "-"
+suffix = param<"--"> @param<rawImmediate>*;
+
+// CLI parameter
+param "parameter" <T> = @T Separator;
+
+// we concatenate argv back into string with this
+// NB! update along with CLI parser
+Separator "sep" = sep:"\uD83E";

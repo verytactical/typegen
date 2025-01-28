@@ -1,14 +1,20 @@
 {
   "name": "type-tools",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "main": "index.js",
   "license": "MIT",
+  "scripts": {
+    "gen": "yarn pgen src/typegen/cli-grammar.gg -o src/typegen/cli-grammar.ts"
+  },
   "dependencies": {
     "@babel/generator": "^7.26.5",
     "@babel/parser": "^7.26.7",
-    "@babel/types": "^7.26.7"
+    "@babel/types": "^7.26.7",
+    "@tonstudio/parser-runtime": "^0.0.1",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@tonstudio/pgen": "^0.0.1",
     "@types/babel__generator": "^7.6.8",
     "@types/node": "^22.12.0",
     "fast-check": "^3.23.2",

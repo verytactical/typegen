@@ -132,11 +132,6 @@ export const makeMakeVisitor =
         }
     };
 
-/**
- * Make visitor for disjoint union (tagged union, discriminated union)
- */
-export const makeVisitor = makeMakeVisitor("type");
-
 export const singleton = <K extends string | symbol, V>(key: K, value: V) => {
     return { [key]: value } as Record<K, V>;
 };

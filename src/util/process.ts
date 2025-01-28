@@ -1,10 +1,14 @@
 import { Either, Left, Right } from "./either";
-import { isError, LogEntry, LogError, LogWarn } from "./log";
+import { isError, LogEntry, LogError, LogInfo, LogWarn } from "./log";
 
 export type Async<T> = AsyncGenerator<LogEntry, T, unknown>
+export type GetAsyncResult<T> = T extends Async<infer R> ? R : never
 export type Sync<T> = Generator<LogEntry, T, unknown>
+export type GetSyncResult<T> = T extends Sync<infer R> ? R : never
+
 export function* err(text: string): Sync<undefined> { yield LogError(text); }
 export function* warn(text: string): Sync<undefined> { yield LogWarn(text); }
+export function* info(text: string): Sync<undefined> { yield LogInfo(text); }
 
 /**
  * NB! Only to be used at top-level of application
@@ -69,19 +73,17 @@ export function runSync<T>(fn: () => Sync<T>): Either<LogEntry[], T> {
 /**
  * Run async process and collect the log
  */
-export async function runAsync<T>(fn: () => Async<T>): Promise<Either<LogEntry[], T>> {
+export async function runAsync<T>(
+    fn: () => Async<T>, 
+    onLog: (entry: LogEntry) => void
+): Promise<T | undefined> {
     const gen = fn();
-    const log: LogEntry[] = [];
     for (;;) {
         const res = await gen.next();
-        if (!res.done) {
-            log.push(res.value);
-            continue;
-        }
-        if (typeof log.find(entry => isError(entry)) !== 'undefined') {
-            return Left(log);
+        if (res.done) {
+            return res.value
         } else {
-            return Right(res.value);
+            onLog(res.value);
         }
     }
 };
