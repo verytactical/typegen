@@ -1,0 +1,18 @@
+{
+  "name": "type-tools",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@babel/generator": "^7.26.5",
+    "@babel/parser": "^7.26.7",
+    "@babel/types": "^7.26.7"
+  },
+  "devDependencies": {
+    "@types/babel__generator": "^7.6.8",
+    "@types/node": "^22.12.0",
+    "fast-check": "^3.23.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}
