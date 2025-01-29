@@ -35,9 +35,9 @@ async function* compileOne(source: string): Async<void, Log & ShowAtLocation> {
     if (!ast) {
         return;
     }
-    const result = yield* compileTypescript(ast);
-    yield* sort(result);
-    // yield* info(displayJson(result));
+    const decls = yield* compileTypescript(ast);
+    const sortedDecls = sort(decls);
+    yield* info(displayJson(sortedDecls));
 }
 
 const displayJson = (obj: unknown) => inspect(obj, { colors: true, depth: Infinity });

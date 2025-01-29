@@ -138,7 +138,7 @@ function* compileRegularField(node: t.TSPropertySignature): Sync<A.Field> {
     return A.Field(name, type);
 }
 
-const compileField: (node: t.TSTypeElement) => Sync<A.Field> = makeVisitor<t.TSTypeElement>()({
+const compileField = makeVisitor<t.TSTypeElement, Sync<A.Field>>()({
     TSPropertySignature: compileRegularField,
     TSCallSignatureDeclaration: badField,
     TSConstructSignatureDeclaration: badField,
@@ -314,7 +314,7 @@ function* compileType(node: t.TSType, isReadonly: boolean, isTopLevel: boolean):
     return yield* compileTypeCtx(node)({ isReadonly, isTopLevel });
 };
 
-const compileTypeCtx: TypeHandler<t.TSType> = makeVisitor<t.TSType>()({
+const compileTypeCtx = makeVisitor<t.TSType, (ctx: Context) => Sync<A.Type>>()({
     TSBooleanKeyword: simpleType(A.TypeBoolean),
     TSBigIntKeyword: simpleType(A.TypeBigint),
     TSNumberKeyword: simpleType(A.TypeNumber),

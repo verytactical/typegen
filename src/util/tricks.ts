@@ -104,21 +104,19 @@ export type Intersect<T> = (T extends unknown ? (x: T) => 0 : never) extends (
  */
 export type Unwrap<T> = T extends infer R ? { [K in keyof R]: R[K] } : never;
 
-type Inputs<I, T extends string> = I extends { [Z in T]: infer K }
+type Inputs<I, O, T extends string> = I extends { [Z in T]: infer K }
     ? K extends string
-        ? Record<K, (input: I) => unknown>
+        ? Record<K, (input: I) => O>
         : never
     : never;
-type Outputs<O> = { [K in keyof O]: (input: never) => O[K] };
-type Handlers<I, O, T extends string> = Unwrap<Intersect<Inputs<I, T>>> &
-    Outputs<O>;
+type Handlers<I, O, T extends string> = Unwrap<Intersect<Inputs<I, O, T>>>;
 
 export const makeMakeVisitor =
     <T extends string>(tag: T) =>
-    <I>() =>
-    <O>(handlers: Handlers<I, O, T>) =>
-    (input: Extract<I, { [K in T]: string }>): O[keyof O] => {
-        const handler = (handlers as Record<string, (input: I) => O[keyof O]>)[
+    <I, O>() =>
+    (handlers: Handlers<I, O, T>) =>
+    (input: Extract<I, { [K in T]: string }>): O => {
+        const handler = (handlers as Record<string, (input: I) => O>)[
             input[tag]
         ];
 

@@ -20,7 +20,7 @@ export async function runCli<T>(
 ) {
     const args = process.argv.slice(2);
     const parseArgs = getArgParser(grammar);
-    const visitor = makeVisitor<T | Help | Version>()(handlers) as
+    const visitor = makeVisitor<T | Help | Version, Async<void, Log>>()(handlers) as
         unknown as (arg: Help | Version | T) => Async<void, Log>;
 
     let hadErrors = false;

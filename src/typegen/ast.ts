@@ -4,9 +4,7 @@ export const Location = (start: number, end: number): Location => ({ start, end 
 export type TypeDecl = { readonly $: 'TypeDecl'; name: string; type: Type; params: readonly string[]; }
 export const TypeDecl = (name: string, type: Type, params: string[]): TypeDecl => ({ $: 'TypeDecl', name, type, params });
 
-export type Type = TypeNull | TypeUndefined | TypeBoolean | TypeNumber | TypeBigint | TypeString | TypeLiteral | TypeArray | TypeTuple | TypeObject | TypeDisjoint | TypeOneOf | TypeRef | TypeMap | TypeSet | TypeMaybe
-export type TypeNull = { readonly $: 'Null', loc: Location }
-export const TypeNull = (loc: Location): TypeNull => ({ $: 'Null', loc })
+export type Type = TypeUndefined | TypeBoolean | TypeNumber | TypeBigint | TypeString | TypeLiteral | TypeArray | TypeTuple | TypeObject | TypeDisjoint | TypeOneOf | TypeRef | TypeMap | TypeSet | TypeMaybe
 export type TypeUndefined = { readonly $: 'Undefined', loc: Location }
 export const TypeUndefined = (loc: Location): TypeUndefined => ({ $: 'Undefined', loc });
 export type TypeBoolean = { readonly $: 'Boolean', loc: Location }
