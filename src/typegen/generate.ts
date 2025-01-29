@@ -45,7 +45,9 @@ export function* generate(
             ));
         }
     }
-    return generateTs(t.program(result)).code;
+    let code = generateTs(t.program(result)).code;
+    code = `// Generated. Do not edit!\n` + code;
+    return code;
 }
 
 const reexport = (name: string, params: readonly A.Param[]): t.Statement => {
@@ -80,12 +82,14 @@ const generateOneOf = (
         values.map(value => t.stringLiteral(value))
     );
     const varName = t.identifier("all" + name);
-    varName.typeAnnotation = t.tsTypeAnnotation(
-        t.tsArrayType(
-            t.tsTypeReference(
-                t.tsQualifiedName(typesImport, t.identifier(name))
-            )
+    const operator = t.tsTypeOperator(t.tsArrayType(
+        t.tsTypeReference(
+            t.tsQualifiedName(typesImport, t.identifier(name))
         )
+    ));
+    operator.operator = "readonly";
+    varName.typeAnnotation = t.tsTypeAnnotation(
+        operator
     );
     const decl = t.variableDeclaration("const", [
         t.variableDeclarator(varName, func)
@@ -105,8 +109,11 @@ const generateCodec = (
     );
     const params = [...fields.values()]
         .map(field => generateParam(field, paramsSet))
-    const body = t.objectExpression(
-        params.map(param => param.property),
+    const body = t.callExpression(
+        t.memberExpression(t.identifier("Object"), t.identifier("freeze")),
+        [t.objectExpression(
+            params.map(param => param.property),
+        )],
     );
     const consFunc = t.arrowFunctionExpression(
         filterUndefined(params.map(param => param.param)),
@@ -133,7 +140,20 @@ const generateCodec = (
     ]);
     result.push(t.exportNamedDeclaration(consDecl));
 
+    // FIXME: <L>(left: Left<L>) should be <L>(either: Either<L, unknown>)
     const destParam = t.identifier("$value");
+    destParam.typeAnnotation = t.tsTypeAnnotation(
+        t.tsTypeReference(
+            t.identifier(name),
+            genericParams.length > 0
+                ? t.tsTypeParameterInstantiation(
+                    genericParams.map(param => {
+                        return t.tsTypeReference(t.identifier(param.name));
+                    })
+                )
+                : undefined
+        )
+    );
     const tagValue = fields.get(disjointTag)?.type;
     const foundTag = tagValue?.$ === 'Literal'
         ? tagValue.value
@@ -149,6 +169,13 @@ const generateCodec = (
             t.stringLiteral(foundTag ?? ""),
         )
     );
+    if (genericParams.length > 0) {
+        destFunc.typeParameters = t.tsTypeParameterDeclaration(
+            genericParams.map(param => {
+                return t.tsTypeParameter(undefined, undefined, param.name);
+            })
+        );
+    }
     const destDecl = t.variableDeclaration("const", [
         t.variableDeclarator(t.identifier("is" + name), destFunc)
     ]);
@@ -210,10 +237,14 @@ const generateType = A.makeVisitor<A.TopLevelType, (genericParams: ReadonlySet<s
         return t.tsUnionType(strings);
     },
     Array: node => gp => {
-        return t.tsArrayType(generateType(node.child)(gp));
+        const operator = t.tsTypeOperator(t.tsArrayType(generateType(node.child)(gp)));
+        operator.operator = 'readonly';
+        return operator;
     },
     Tuple: node => gp => {
-        return t.tsTupleType(node.children.map(child => generateType(child)(gp)))
+        const operator = t.tsTypeOperator(t.tsTupleType(node.children.map(child => generateType(child)(gp))));
+        operator.operator = 'readonly';
+        return operator;
     },
     Map: node => gp => {
         const params = t.tsTypeParameterInstantiation([
@@ -241,8 +272,10 @@ const generateField = (
     genericParams: ReadonlySet<string>,
 ): t.TSPropertySignature => {
     const type = generateType(node.type)(genericParams);
-    return t.tsPropertySignature(
+    const field = t.tsPropertySignature(
         t.identifier(node.name),
         t.tsTypeAnnotation(type),
     )
+    field.readonly = true;
+    return field;
 };
