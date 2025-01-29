@@ -8,6 +8,7 @@ import { z } from "zod";
 import { runCli } from "../util/cli";
 import { ShowAtLocation, withSourceAsync } from "../util/source-error";
 import { cwd } from "process";
+import { inspect } from "util";
 
 export const main = () => runCli(grammar, {
     Compile: compile,
@@ -34,8 +35,10 @@ async function* compileOne(source: string): Async<void, Log & ShowAtLocation> {
         return;
     }
     const result = yield* compileTypescript(ast);
-    // yield* info(JSON.stringify(result, null, 4));
+    // yield* info(displayJson(result));
 }
+
+const displayJson = (obj: unknown) => inspect(obj, { colors: true, depth: Infinity });
 
 const resolve = (path: string) => {
     const result = relative(cwd(), path);

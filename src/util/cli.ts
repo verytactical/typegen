@@ -1,4 +1,4 @@
-import { gray, red } from "picocolors";
+import { gray, red, yellow } from "picocolors";
 import { type Located, parseNoSkip, type Parser } from "@tonstudio/parser-runtime";
 import { type Async, catchInternalErrorsAsync, Err, err, handleAsync, Log, runAsync, type Sync } from "./process";
 import { getExpectedText, ShowAtLocation, showAtLocation, withSourceSync } from "./source-error";
@@ -45,6 +45,9 @@ export async function runCli<T>(
             },
             *errorColor(text) {
                 return red(text);
+            },
+            *sourceColor(text) {
+                return yellow(text);
             },
         }
     ));

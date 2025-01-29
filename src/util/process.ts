@@ -66,7 +66,9 @@ export const contextColor = define<(text: string) => string>()('contextColor');
 export interface ContextColor extends GetSyncEffectOf<typeof contextColor> {}
 export const errorColor = define<(text: string) => string>()('errorColor');
 export interface ErrorColor extends GetSyncEffectOf<typeof errorColor> {}
-export type Colors = ContextColor & ErrorColor
+export const sourceColor = define<(text: string) => string>()('sourceColor');
+export interface SourceColor extends GetSyncEffectOf<typeof sourceColor> {}
+export type Colors = ContextColor & ErrorColor & SourceColor
 
 export const err = define<(text: string) => void>()('err');
 export interface Err extends GetSyncEffectOf<typeof err> {}

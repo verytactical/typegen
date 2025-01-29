@@ -12,26 +12,41 @@ const makeVisitor = makeMakeVisitor("type");
 
 type Sync<T> = SyncRaw<T, Log & ShowAtLocation>
 
-type Located = {
-    start?: number | null;
-    end?: number | null;
-};
+type RawLocation = { type: t.Node["type"]; start?: number | null; end?: number | null; }
+function* location(node: RawLocation) {
+    if (typeof node.start !== 'number' || typeof node.end !== 'number') {
+        // TODO: internal error + handler
+        throw new Error(`Babel returned a node without location! ${node.type}`)
+    }
+    return A.Location(node.start, node.end);
+}
+
 const lift = (fn: (text: string) => Sync<void>) => {
-    return function* (text: string, node: Located): Sync<void> {
-        if (typeof node.start !== 'number' || typeof node.end !== 'number') {
-            yield* fn(text)
-        } else {
-            yield* fn(yield* showAtLocation(text, node.start, node.end))
-        }
+    return function* (text: string, node: A.Location): Sync<void> {
+        yield* fn(yield* showAtLocation(text, node.start, node.end));
     };
 };
 const err = lift(errRaw);
-const warn = lift(warnRaw);
+// const warn = lift(warnRaw);
 
 function* badNode(node: t.Node): Sync<undefined> {
-    yield* err(`Unexpected type: ${node.type}`, node)
+    const loc = yield* location(node);
+    yield* err(`Unexpected type: ${node.type}`, loc)
     return undefined;
 };
+
+function* noReadonly(node: t.Node, isReadonly: boolean): Sync<undefined> {
+    const loc = yield* location(node);
+    if (isReadonly) {
+        yield* err(`${node.type} cannot be readonly`, loc);
+    }
+}
+function* mustBeReadonly(node: t.Node, isReadonly: boolean): Sync<undefined> {
+    const loc = yield* location(node);
+    if (!isReadonly) {
+        yield* err(`Must be readonly`, loc);
+    }
+}
 
 function* compileFile(node: t.File): Sync<A.TypeDecl[]> {
     return yield* compileDecls(node.program.body);
@@ -42,25 +57,26 @@ function* compileDecls(nodes: t.Statement[]): Sync<A.TypeDecl[]> {
 };
 
 function* compileDecl(node: t.Statement): Sync<A.TypeDecl | undefined> {
+    const loc = yield* location(node);
     if (!t.isExportNamedDeclaration(node)) {
-        yield* err(`Only "export" are allowed, got ${node.type}`, node);
+        yield* err(`Only "export" are allowed, got ${node.type}`, loc);
         return undefined;
     }
     const decl = node.declaration;
     if (!decl) {
-        yield* err("Export without a declaration", node);
+        yield* err("Export without a declaration", loc);
         return undefined;
     }
     if (!t.isTSTypeAliasDeclaration(decl)) {
-        yield* err(`Only "type" are allowed, got ${decl.type}`, node);
+        yield* err(`Only "type" are allowed, got ${decl.type}`, loc);
         return undefined;
     }
     if (decl.declare) {
-        yield* err(`Declared types are not allowed`, node);
+        yield* err(`Declared types are not allowed`, loc);
     }
     return A.TypeDecl(
         decl.id.name,
-        yield* compileType(decl.typeAnnotation),
+        yield* compileType(decl.typeAnnotation, false),
         yield* compileFormalParameters(decl.typeParameters),
     );
 }
@@ -70,54 +86,55 @@ function* compileFormalParameters(node: t.TSTypeParameterDeclaration | undefined
 };
 
 function* compileFormalParameter(node: t.TSTypeParameter): Sync<string> {
+    const loc = yield* location(node);
     if (node.in || node.out) {
-        yield* err(`Variance params are not allowed`, node);
+        yield* err(`Variance params are not allowed`, loc);
     }
     if (node.const) {
-        yield* err(`"const T" is not allowed`, node);
+        yield* err(`"const T" is not allowed`, loc);
     }
     if (node.default) {
-        yield* err(`" = T" is not allowed`, node);
+        yield* err(`" = T" is not allowed`, loc);
     }
     if (node.constraint) {
-        yield* err(`"extends" is not allowed`, node);
+        yield* err(`"extends" is not allowed`, loc);
     }
     return node.name;
 };
 
 function* compileFactualParameters(node: t.TSTypeParameterInstantiation | undefined | null): Sync<A.Type[]> {
-    return yield* traverse(node?.params ?? [], compileType);
+    return yield* traverse(node?.params ?? [], node => compileType(node, false));
 };
 
 function* badField(node: t.TSTypeElement): Sync<A.Field> {
+    const loc = yield* location(node);
     yield* badNode(node);
-    return A.Field('ERROR', A.TypeRef("ERROR", []));
+    return A.Field('ERROR', A.TypeRef("ERROR", [], loc));
 }
 
 function* compileRegularField(node: t.TSPropertySignature): Sync<A.Field> {
+    const loc = yield* location(node);
     const { typeAnnotation } = node;
     if (node.computed) {
-        yield* err("Computed field types are not allowed", node);
+        yield* err("Computed field types are not allowed", loc);
     }
     if (!t.isIdentifier(node.key)) {
-        yield* err("Computed field types are not allowed", node);
+        yield* err("Computed field types are not allowed", loc);
     }
     const name = t.isIdentifier(node.key) ? node.key.name : 'ERROR';
     if (node.kind) {
-        yield* err(`Getters and setters are not allowed, got ${node.kind}`, node);
+        yield* err(`Getters and setters are not allowed, got ${node.kind}`, loc);
     }
     if (node.optional) {
-        yield* err(`Optional fields are not allowed`, node);
+        yield* err(`Optional fields are not allowed`, loc);
     }
-    if (!node.readonly) {
-        yield* warn("All fields should be defined as readonly", node);
-    }
+    yield* mustBeReadonly(node, node.readonly ?? false);
     if (!typeAnnotation) {
-        yield* err("Field doesn't have a type annotation", node)
+        yield* err("Field doesn't have a type annotation", loc)
     }
     const type = typeAnnotation
-        ? yield* compileType(typeAnnotation.typeAnnotation)
-        : A.TypeRef("ERROR", []);
+        ? yield* compileType(typeAnnotation.typeAnnotation, false)
+        : A.TypeRef("ERROR", [], loc);
     return A.Field(name, type);
 }
 
@@ -129,81 +146,137 @@ const compileField: (node: t.TSTypeElement) => Sync<A.Field> = makeVisitor<t.TST
     TSMethodSignature: badField,
 });
 
-const simpleType = (type: A.Type) => {
-    // This trickery is to display name of the function
-    // differently in error call stack
-    const name = `simpleType(${type.$})`;
-    const object = {
-        [name]: function* (): Sync<A.Type> {
-            return type;
-        },
+type TypeHandler<T> = (type: T) => (isReadonly: boolean) => Sync<A.Type>
+
+const simpleType = (type: (loc: A.Location) => A.Type): TypeHandler<t.Node> => {
+    return node => function* (isReadonly) {
+        const loc = yield* location(node);
+        yield* noReadonly(node, isReadonly);
+        return type(loc);
     };
-    const fn = object[name];
-    if (!fn) {
-        throw new Error("Impossible");
-    }
-    return fn;
 };
 
-function* compileLiteralType(node: t.TSLiteralType): Sync<A.TypeLiteral> {
+const compileLiteralType: TypeHandler<t.TSLiteralType> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* noReadonly(node, isReadonly);
     if (!t.isStringLiteral(node.literal)) {
-        yield* err("Only string literal types are supported", node);
-        return A.TypeLiteral("ERROR");
+        yield* err("Only string literal types are supported", loc);
+        return A.TypeLiteral("ERROR", loc);
     }
-    return A.TypeLiteral(node.literal.value);
+    return A.TypeLiteral(node.literal.value, loc);
 }
 
-function* compileReference(node: t.TSTypeReference): Sync<A.TypeRef> {
+const compileReference: TypeHandler<t.TSTypeReference> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* noReadonly(node, isReadonly);
     const params = yield* compileFactualParameters(node.typeParameters);
     if (!t.isIdentifier(node.typeName)) {
-        yield* err("Qualified type references are not supported", node);
-        return A.TypeRef("ERROR", params);
+        yield* err("Qualified type references are not supported", loc);
+        return A.TypeRef("ERROR", params, loc);
     }
-    return A.TypeRef(node.typeName.name, params);
+    const name = node.typeName.name;
+    if (name === 'Map' || name === 'ReadonlyMap') {
+        if (name === 'Map') {
+            yield* err("Map must be readonly", loc);
+        }
+        const [key, value] = params;
+        if (params.length !== 2 || !key || !value) {
+            yield* err("Map takes 2 parameters", loc);
+            return A.TypeRef("ERROR", params, loc);
+        }
+        return A.TypeMap(key, value, loc);
+    } else if (name === 'Set' || name === 'ReadonlySet') {
+        if (name === 'Set') {
+            yield* err("Set must be readonly", loc);
+        }
+        const [value] = params;
+        if (params.length !== 1 || !value) {
+            yield* err("Set takes 1 parameter", loc);
+            return A.TypeRef("ERROR", params, loc);
+        }
+        return A.TypeSet(value, loc);
+    } else if (name === 'Array' || name === 'ReadonlyArray') {
+        yield* err("Use T[] syntax for arrays", loc);
+        if (name === 'Array') {
+            yield* err("Array must be readonly", loc);
+        }
+        const [value] = params;
+        if (params.length !== 1 || !value) {
+            yield* err("Array takes 1 parameter", loc);
+            return A.TypeRef("ERROR", params, loc);
+        }
+        return A.TypeArray(value, loc);
+    } else {
+        return A.TypeRef(name, params, loc);
+    }
 }
 
-function* compileObject(node: t.TSTypeLiteral): Sync<A.TypeObject> {
+const compileObject: TypeHandler<t.TSTypeLiteral> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* noReadonly(node, isReadonly);
     const fields = yield* traverse(node.members, member => compileField(member));
-    const fieldsRecord = Object.fromEntries(
+    const fieldsRecord = new Map(
         fields.map(field => [field.name, field] as const)
     );
-    return A.TypeObject(fieldsRecord);
+    return A.TypeObject(fieldsRecord, loc);
 }
 
-function* compileArray(node: t.TSArrayType): Sync<A.TypeArray> {
-    const child = yield* compileType(node.elementType);
-    return A.TypeArray(child);
+const compileArray: TypeHandler<t.TSArrayType> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* mustBeReadonly(node, isReadonly);
+    const child = yield* compileType(node.elementType, false);
+    return A.TypeArray(child, loc);
 }
 
-function* compileTuple(node: t.TSTupleType): Sync<A.TypeTuple> {
+const compileTuple: TypeHandler<t.TSTupleType> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* mustBeReadonly(node, isReadonly);
     const children = yield* traverse(node.elementTypes, compileTupleElement);
-    return A.TypeTuple(children);
+    return A.TypeTuple(children, loc);
 }
 
 function* compileTupleElement(node: t.TSNamedTupleMember | t.TSType): Sync<A.Type> {
+    const loc = yield* location(node);
     if (!t.isTSNamedTupleMember(node)) {
-        return yield* compileType(node);
+        return yield* compileType(node, false);
     }
     if (node.optional) {
-        yield* err('Optional tuple arguments are not supported', node);
+        yield* err('Optional tuple arguments are not supported', loc);
     }
-    return yield* compileType(node.elementType);
+    return yield* compileType(node.elementType, false);
 }
 
-function* compileUnion(node: t.TSUnionType): Sync<A.TypeUnion> {
-    const children = yield* traverse(node.types, compileType);
+const compileUnion: TypeHandler<t.TSUnionType> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* noReadonly(node, isReadonly);
+    const children = yield* traverse(node.types, type => compileType(type, false));
     if (children.length === 0) {
-        yield* err("Union of no types doesn't make sense", node);
+        yield* err("Union of no types doesn't make sense", loc);
     }
-    return A.TypeUnion(children);
+    return A.TypeUnion(children, loc);
 }
 
-function* badType(node: t.TSType): Sync<A.Type> {
+const badType: TypeHandler<t.TSType> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* noReadonly(node, isReadonly);
     yield* badNode(node);
-    return A.TypeRef("ERROR", []);
+    return A.TypeRef("ERROR", [], loc);
 }
 
-const compileType: (node: t.TSType) => Sync<A.Type> = makeVisitor<t.TSType>()({
+const compileReadonly: TypeHandler<t.TSTypeOperator> = node => function* (isReadonly) {
+    const loc = yield* location(node);
+    yield* noReadonly(node, isReadonly);
+    if (node.operator !== 'readonly') {
+        yield* err(`Unknown type operator ${node.operator}`, loc);
+    }
+    return yield* compileType(node.typeAnnotation, true);
+}
+
+function* compileType(node: t.TSType, isReadonly: boolean): Sync<A.Type> {
+    return yield* compileTypeCtx(node)(isReadonly);
+};
+
+const compileTypeCtx: TypeHandler<t.TSType> = makeVisitor<t.TSType>()({
     TSBooleanKeyword: simpleType(A.TypeBoolean),
     TSBigIntKeyword: simpleType(A.TypeBigint),
     TSNullKeyword: simpleType(A.TypeNull),
@@ -217,7 +290,8 @@ const compileType: (node: t.TSType) => Sync<A.Type> = makeVisitor<t.TSType>()({
     TSArrayType: compileArray,
     TSTupleType: compileTuple,
     TSUnionType: compileUnion,
-
+    TSTypeOperator: compileReadonly,
+    
     TSObjectKeyword: badType,
     TSAnyKeyword: badType,
     TSIntrinsicKeyword: badType,
@@ -236,7 +310,6 @@ const compileType: (node: t.TSType) => Sync<A.Type> = makeVisitor<t.TSType>()({
     TSConditionalType: badType,
     TSInferType: badType,
     TSParenthesizedType: badType,
-    TSTypeOperator: badType,
     TSIndexedAccessType: badType,
     TSMappedType: badType,
     TSExpressionWithTypeArguments: badType,

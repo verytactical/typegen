@@ -1,4 +1,4 @@
-import { Async, Colors, contextColor, define, errorColor, GetSyncEffectOf, handleAsync, handleSync, Log, Sync, traverse } from "./process";
+import { Async, Colors, contextColor, define, errorColor, GetSyncEffectOf, handleAsync, handleSync, sourceColor, Sync, traverse } from "./process";
 
 const isEndline = (s: string) => s === "\n";
 
@@ -192,7 +192,7 @@ function* showSourceError(
     const colNum = range.start - lineStartPos;
 
     const resultLines = paddedLines.join("\n");
-    return `${message} (${fileName}:${lineNum + 1}:${colNum + 1})\n${resultLines}\n`;
+    return `${message} (${yield* sourceColor(fileName)}:${lineNum + 1}:${colNum + 1})\n${resultLines}\n`;
 };
 
 export const showAtLocation = define<(text: string, start: number, end: number) => string>()('showLocation');
