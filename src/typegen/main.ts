@@ -9,6 +9,7 @@ import { runCli } from "../util/cli";
 import { ShowAtLocation, withSourceAsync } from "../util/source-error";
 import { cwd } from "process";
 import { inspect } from "util";
+import { sort } from "./sort";
 
 export const main = () => runCli(grammar, {
     Compile: compile,
@@ -35,6 +36,7 @@ async function* compileOne(source: string): Async<void, Log & ShowAtLocation> {
         return;
     }
     const result = yield* compileTypescript(ast);
+    yield* sort(result);
     // yield* info(displayJson(result));
 }
 

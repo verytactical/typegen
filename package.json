@@ -4,7 +4,8 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "gen": "yarn pgen src/typegen/cli-grammar.gg -o src/typegen/cli-grammar.ts"
+    "gen": "yarn pgen src/typegen/cli-grammar.gg -o src/typegen/cli-grammar.ts",
+    "test": "node --no-warnings=ExperimentalWarning -r ts-node/register src/typegen/typegen.infra.ts example/ast.ts"
   },
   "dependencies": {
     "@babel/generator": "^7.26.5",
