@@ -1,11 +1,13 @@
-import { join } from "path";
+import { join, relative } from "path";
 import { glob, readFile } from "fs/promises";
 import { parseTypeScript } from "./babel";
 import { compileTypescript } from "./decode";
 import { $ast, grammar } from './cli-grammar';
-import { info } from "../util/process";
+import { Async, Info, info, Log } from "../util/process";
 import { z } from "zod";
 import { runCli } from "../util/cli";
+import { ShowAtLocation, withSourceAsync } from "../util/source-error";
+import { cwd } from "process";
 
 export const main = () => runCli(grammar, {
     Compile: compile,
@@ -13,18 +15,31 @@ export const main = () => runCli(grammar, {
     Help: showHelp,
 });
 
-async function* compile({ pattern }: $ast.Compile) {
+async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
     // TODO: run parallel
     for await (const filePath of glob(pattern)) {
-        // TODO: wrap errors
+        // TODO: wrap FS errors (src/typegen/fs.ts)
         const source = await readFile(filePath, "utf-8");
-        const ast = yield* parseTypeScript(source);
-        if (!ast) {
-            return;
-        }
-        const result = yield* compileTypescript(ast);
-        console.log(JSON.stringify(result, null, 4));
+        yield* withSourceAsync(
+            resolve(filePath),
+            source,
+            compileOne,
+        )(source);
     }
+}
+
+async function* compileOne(source: string): Async<void, Log & ShowAtLocation> {
+    const ast = yield* parseTypeScript(source);
+    if (!ast) {
+        return;
+    }
+    const result = yield* compileTypescript(ast);
+    // yield* info(JSON.stringify(result, null, 4));
+}
+
+const resolve = (path: string) => {
+    const result = relative(cwd(), path);
+    return result.startsWith('.') ? result : './' + result;
 }
 
 const helpMessage = `Usage
@@ -40,11 +55,11 @@ Flags
 Examples
     $ typegen **/*.types.ts
 `;
-async function* showHelp(_: $ast.Help) {
+async function* showHelp(_: $ast.Help): Async<void, Info> {
     yield* info(helpMessage);
 }
 
-async function* showVersion(_: $ast.Version) {
+async function* showVersion(_: $ast.Version): Async<void, Info> {
     const packageSchema = z.object({
         version: z.string(),
     });

@@ -1,3 +1,5 @@
+import { Async, Colors, contextColor, define, errorColor, GetSyncEffectOf, handleAsync, handleSync, Log, Sync, traverse } from "./process";
+
 const isEndline = (s: string) => s === "\n";
 
 const repeat = (s: string, n: number): string => new Array(n + 1).join(s);
@@ -83,112 +85,141 @@ export const getExpectedText = (expected: ReadonlySet<string>) => {
     return result.join("");
 };
 
-export const getErrorPrinter = ({
-    error,
-    context,
-    contextLines,
-}: ErrorPrinterParams) => {
-    const displayLine = (line: Line, range: Range) => {
-        // Only the line that contains range.start is underlined in error message
-        // Otherwise error on `while (...) {}` would display the whole loop body, for example
-        const hasInterval =
-            line.range.start <= range.start && range.start < line.range.end;
+type DisplayLine = {
+    id: number | null,
+    text: string,
+    hasInterval: boolean,
+    startOfError: number,
+}
 
-        // Find the line-relative range
-        const mapped = shift(intersect(range, line.range), -line.range.start);
+function* displayLine(line: Line, range: Range): Sync<DisplayLine[], Colors> {
+    // Only the line that contains range.start is underlined in error message
+    // Otherwise error on `while (...) {}` would display the whole loop body, for example
+    const hasInterval =
+        line.range.start <= range.start && range.start < line.range.end;
 
-        // All lines except with error message are displayed in gray
-        if (!hasInterval) {
-            return [
-                {
-                    id: line.id,
-                    text: context(line.text),
-                    hasInterval,
-                    startOfError: mapped.start,
-                },
-            ];
-        }
+    // Find the line-relative range
+    const mapped = shift(intersect(range, line.range), -line.range.start);
 
-        // Source line with error colored
-        const sourceLine = {
-            id: line.id,
-            text: [
-                line.text.substring(0, mapped.start),
-                error(line.text.substring(mapped.start, mapped.end)),
-                line.text.substring(mapped.end),
-            ].join(""),
-            hasInterval: true,
-            startOfError: mapped.start,
-        };
+    // All lines except with error message are displayed in gray
+    if (!hasInterval) {
+        return [
+            {
+                id: line.id,
+                text: yield* contextColor(line.text),
+                hasInterval,
+                startOfError: mapped.start,
+            },
+        ];
+    }
 
-        // Wiggly line underneath it
-        const underline = {
-            id: null,
-            text: [
-                repeat(" ", mapped.start),
-                "^",
-                repeat("~", Math.max(0, mapped.end - mapped.start - 1)),
-            ].join(""),
-            hasInterval: true,
-            startOfError: mapped.start,
-        };
-
-        return [sourceLine, underline];
+    // Source line with error colored
+    const sourceLine: DisplayLine = {
+        id: line.id,
+        text: [
+            line.text.substring(0, mapped.start),
+            yield* errorColor(line.text.substring(mapped.start, mapped.end)),
+            line.text.substring(mapped.end),
+        ].join(""),
+        hasInterval: true,
+        startOfError: mapped.start,
     };
 
-    const show = (str: string, range: Range): string => {
-        // Display all lines of source file
-        const lines = toLines(str).flatMap((line) => displayLine(line, range));
-
-        // Find first and lines lines with error message
-        const firstLineNum = lines.findIndex((line) => line.hasInterval);
-        const lastLineNum = lines.findLastIndex((line) => line.hasInterval);
-        if (firstLineNum === -1 || lastLineNum === -1) {
-            throw new Error(
-                `Interval [${range.start}, ${range.end}[ is empty or out of source bounds (${str.length})`,
-            );
-        }
-
-        // Expand the line range so that `contextLines` are above and below
-        const rangeStart = Math.max(0, firstLineNum - contextLines);
-        const rangeEnd = Math.min(lines.length - 1, lastLineNum + contextLines);
-
-        // Pick displayed lines out of full list
-        const displayedLines = lines.slice(rangeStart, rangeEnd + 1);
-
-        // Find padding based on the line with largest line number
-        const maxLineId = displayedLines.reduce((acc, line) => {
-            return line.id === null ? acc : Math.max(acc, line.id);
-        }, 1);
-        const lineNumLength = String(maxLineId + 1).length;
-
-        // Add line numbers and cursor to lines
-        const paddedLines = displayedLines.map(({ hasInterval, id, text }) => {
-            const prefix = hasInterval && id !== null ? ">" : " ";
-            const paddedLineNum =
-                id === null
-                    ? repeat(" ", lineNumLength) + "  "
-                    : String(id + 1).padStart(lineNumLength) + " |";
-            return `${prefix} ${paddedLineNum} ${text}`;
-        });
-
-        return paddedLines.join("\n") + "\n";
+    // Wiggly line underneath it
+    const underline: DisplayLine = {
+        id: null,
+        text: [
+            repeat(" ", mapped.start),
+            "^",
+            repeat("~", Math.max(0, mapped.end - mapped.start - 1)),
+        ].join(""),
+        hasInterval: true,
+        startOfError: mapped.start,
     };
 
-    const getLineAndColumn = (str: string, range: Range) => {
-        const prefix = str.substring(0, range.start).split("");
-        const lineNum = prefix.filter(isEndline).length;
-        const prevLineEndPos = prefix.findLastIndex(isEndline);
-        const lineStartPos = prevLineEndPos === -1 ? 0 : prevLineEndPos + 1;
-        const colNum = range.start - lineStartPos;
+    return [sourceLine, underline];
+};
 
-        return {
-            offset: range.start,
-            lineNum: lineNum + 1,
-            colNum: colNum + 1,
-            toString: () => show(str, range),
-        };
-    };
+function* showSourceError(
+    message: string,
+    fileName: string,
+    source: string, 
+    range: Range, 
+    numContextLines: number = 1,
+): Sync<string, Colors> {
+    // Display all lines of source file
+    const lines = (yield* traverse(
+        toLines(source),
+        (line) => displayLine(line, range),
+    )).flat();
 
-    return { show, getLineAndColumn };
+    // Find first and lines lines with error message
+    const firstLineNum = lines.findIndex((line) => line.hasInterval);
+    const lastLineNum = lines.findLastIndex((line) => line.hasInterval);
+    if (firstLineNum === -1 || lastLineNum === -1) {
+        throw new Error(
+            `Interval [${range.start}, ${range.end}[ is empty or out of source bounds (${source.length})`,
+        );
+    }
+
+    // Expand the line range so that `contextLines` are above and below
+    const rangeStart = Math.max(0, firstLineNum - numContextLines);
+    const rangeEnd = Math.min(lines.length - 1, lastLineNum + numContextLines);
+
+    // Pick displayed lines out of full list
+    const displayedLines = lines.slice(rangeStart, rangeEnd + 1);
+
+    // Find padding based on the line with largest line number
+    const maxLineId = displayedLines.reduce((acc, line) => {
+        return line.id === null ? acc : Math.max(acc, line.id);
+    }, 1);
+    const lineNumLength = String(maxLineId + 1).length;
+
+    // Add line numbers and cursor to lines
+    const paddedLines = displayedLines.map(({ hasInterval, id, text }) => {
+        const prefix = hasInterval && id !== null ? ">" : " ";
+        const paddedLineNum =
+            id === null
+                ? repeat(" ", lineNumLength) + "  "
+                : String(id + 1).padStart(lineNumLength) + " |";
+        return `${prefix} ${paddedLineNum} ${text}`;
+    });
+
+    const prefix = source.substring(0, range.start).split("");
+    const lineNum = prefix.filter(isEndline).length;
+    const prevLineEndPos = prefix.findLastIndex(isEndline);
+    const lineStartPos = prevLineEndPos === -1 ? 0 : prevLineEndPos + 1;
+    const colNum = range.start - lineStartPos;
+
+    const resultLines = paddedLines.join("\n");
+    return `${message} (${fileName}:${lineNum + 1}:${colNum + 1})\n${resultLines}\n`;
+};
+
+export const showAtLocation = define<(text: string, start: number, end: number) => string>()('showLocation');
+export interface ShowAtLocation extends GetSyncEffectOf<typeof showAtLocation> {}
+
+export const withSourceSync = <A extends any[], T, C>(
+    fileNameRelativeToCwd: string,
+    source: string,
+    fn: (...args: A) => Sync<T, C & ShowAtLocation>
+): (...args: A) => Sync<T, C & Colors> => {
+    return handleSync(fn, {
+        *showLocation(text: string, start: number, end: number) {
+            return yield* showSourceError(text, fileNameRelativeToCwd, source, { start, end });
+        },
+    // TS bug: too generic!
+    } as any) as any;
+};
+
+export const withSourceAsync = <A extends any[], T, C>(
+    fileNameRelativeToCwd: string,
+    source: string,
+    fn: (...args: A) => Async<T, C & ShowAtLocation>
+): (...args: A) => Async<T, C & Colors> => {
+    return handleAsync(fn, {
+        *showLocation(text: string, start: number, end: number) {
+            return yield* showSourceError(text, fileNameRelativeToCwd, source, { start, end });
+        },
+    // TS bug: too generic!
+    } as any) as any;
 };

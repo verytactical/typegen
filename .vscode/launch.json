@@ -10,7 +10,8 @@
             ],
             "runtimeArgs": [
                 "-r",
-                "ts-node/register"
+                "ts-node/register",
+                "--no-warnings=ExperimentalWarning",
             ],
             "cwd": "${workspaceRoot}",
             "internalConsoleOptions": "openOnSessionStart",

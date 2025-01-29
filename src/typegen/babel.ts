@@ -1,12 +1,13 @@
 import { parse, ParserOptions } from "@babel/parser";
-import { err, Sync } from "../util/process";
+import { err, Log, Sync } from "../util/process";
 import * as t from "@babel/types";
 
-export function* parseTypeScript(source: string): Sync<t.File | undefined> {
+export function* parseTypeScript(source: string): Sync<t.File | undefined, Log> {
     const options: ParserOptions = {
         sourceType: "module",
         plugins: ["typescript"],
         errorRecovery: true,
+        ranges: true,
     };
     try {
         const ast = parse(source, options);
@@ -24,7 +25,7 @@ export function* parseTypeScript(source: string): Sync<t.File | undefined> {
     }
 }
 
-function* decodeError(error: unknown): Sync<void> {
+function* decodeError(error: unknown): Sync<void, Log> {
     if (error instanceof SyntaxError) {
         const message = error.message;
         const position = (error as { pos?: unknown }).pos;
