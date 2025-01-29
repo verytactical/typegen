@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { basename, dirname, extname, join, relative } from "path";
-import { glob, readFile, writeFile } from "fs/promises";
+import { glob, mkdir, readFile, writeFile } from "fs/promises";
 import { parseTypeScript } from "./babel";
 import { compileTypescript } from "./decode";
 import { $ast, grammar } from './cli-grammar';
@@ -45,6 +45,7 @@ async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
         }
         const sortedDecls = sort(decls);
         const declPath = getPath('cons');
+        await mkdir(dirname(declPath), { recursive: true });
         await writeFile(declPath, yield* generate(sortedDecls))
         // yield* info(displayJson(sortedDecls));
     }
