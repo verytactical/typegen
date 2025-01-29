@@ -2,16 +2,14 @@ import { z } from "zod";
 import { basename, dirname, extname, join, relative } from "path";
 import { glob, mkdir, readFile, writeFile } from "fs/promises";
 import { parseTypeScript } from "./babel";
-import { compileTypescript } from "./decode";
+import { compileTypescript, Decls } from "./decode";
 import { $ast, grammar } from './cli-grammar';
 import { Async, Info, info, Log } from "../util/process";
 import { runCli } from "../util/cli";
 import { ShowAtLocation, withSourceAsync } from "../util/source-error";
 import { cwd } from "process";
 import { inspect } from "util";
-import { sort } from "./sort";
 import { generate } from "./generate";
-import { TypeDecl } from "./ast";
 
 export const main = () => runCli(grammar, {
     Compile: compile,
@@ -20,6 +18,7 @@ export const main = () => runCli(grammar, {
 });
 
 const tsExtension = '.ts';
+const disjointTag = 'kind';
 
 async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
     // TODO: run parallel
@@ -35,15 +34,14 @@ async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
         }
         // TODO: wrap FS errors (src/typegen/fs.ts)
         const source = await readFile(filePath, "utf-8");
-        const decls = yield* withSourceAsync(
+        const sortedDecls = yield* withSourceAsync(
             resolve(filePath),
             source,
-            parse,
+            (source) => parse(source, disjointTag),
         )(source);
-        if (!decls) {
+        if (!sortedDecls) {
             return;
         }
-        const sortedDecls = sort(decls);
         const declPath = getPath('cons');
         await mkdir(dirname(declPath), { recursive: true });
         await writeFile(declPath, yield* generate(sortedDecls))
@@ -51,12 +49,12 @@ async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
     }
 }
 
-async function* parse(source: string): Async<undefined | readonly TypeDecl[], Log & ShowAtLocation> {
+async function* parse(source: string, disjointTag: string): Async<undefined | Decls, Log & ShowAtLocation> {
     const ast = yield* parseTypeScript(source);
     if (!ast) {
         return;
     }
-    return yield* compileTypescript(ast);
+    return yield* compileTypescript(ast, disjointTag);
 }
 
 const displayJson = (obj: unknown) => inspect(obj, { colors: true, depth: Infinity });

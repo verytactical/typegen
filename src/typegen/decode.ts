@@ -2,10 +2,14 @@ import * as t from "@babel/types";
 import { makeMakeVisitor } from "../util/tricks";
 import { filterUndefined } from "../util/array";
 import * as A from './ast';
-import { err as errRaw, warn as warnRaw, traverse, Log, Sync as SyncRaw, GetSyncEffectOf, define, handleSync } from "../util/process";
+import { err as errRaw, traverse, Log, Sync as SyncRaw } from "../util/process";
 import { ShowAtLocation, showAtLocation } from "../util/source-error";
+import { tarjan } from "../util/tarjan";
 
-export const compileTypescript = compileFile;
+export function* compileTypescript(node: t.File, disjointTag: string): Sync<Decls> {
+    const decls = yield* compileFile(node);
+    return yield* sort(decls, disjointTag);
+}
 
 // visitor for babel AST nodes
 const makeVisitor = makeMakeVisitor("type");
@@ -78,6 +82,7 @@ function* compileDecl(node: t.Statement): Sync<A.TypeDecl | undefined> {
         decl.id.name,
         yield* compileTypeTopLevel(decl.typeAnnotation),
         yield* compileFormalParameters(decl.typeParameters),
+        loc,
     );
 }
 
@@ -369,4 +374,119 @@ const compileTypeCtx = makeVisitor<t.TSType, (ctx: Context) => Sync<A.Type>>()({
     TSMappedType: badType,
     TSExpressionWithTypeArguments: badType,
     TSImportType: badType,
+});
+
+export type Decls = readonly (readonly A.ResolvedDecl[])[]
+
+function* sort(
+    decls: readonly A.TypeDecl[],
+    disjointTag: string
+): Sync<Decls> {
+    const rawDeclMap = new Map(decls.map(decl => [
+        decl.name,
+        decl,
+    ] as const));
+    const declMap = new Map(yield* traverse(decls, function* (decl) {
+        return [
+            decl.name,
+            yield* ensureAdt(decl, rawDeclMap, disjointTag),
+        ] as const;
+    }));
+    const dependencies = new Map(decls.map(decl => [
+        decl.name,
+        collectRefs(decl.type)(new Set(decl.params))
+    ] as const));
+    const sortedDecls = tarjan(dependencies).map((group): readonly A.ResolvedDecl[] => {
+        return group.map(declName => {
+            const decl = declMap.get(declName);
+            if (!decl) {
+                // FIXME: internal error
+                throw new Error('Tarjan lost nodes');
+            }
+            return decl;
+        });
+    });
+    return sortedDecls;
+}
+
+function* ensureAdt(
+    node: A.TypeDecl,
+    decls: ReadonlyMap<string, A.TypeDecl>,
+    disjointTag: string,
+): Sync<A.ResolvedDecl> {
+    if (node.type.$ !== 'Disjoint') {
+        return A.ResolvedDecl(node.name, node.type, node.params);
+    }
+    const resolved = yield* traverse(node.type.children, function* (ref): Sync<readonly [string, A.TypeRef][]> {
+        const referred = decls.get(ref.name);
+        if (!referred) {
+            yield* err('Broken reference', ref.loc);
+            return [];
+        }
+        const { type } = referred;
+        if (type.$ !== 'Object') {
+            debugger;
+            yield* err('Disjoint union must be composed of objects', ref.loc);
+            return [];
+        }
+        const tagField = type.fields.get(disjointTag);
+        if (!tagField) {
+            yield* err(`Tag field is not set`, type.loc);
+            return [];
+        }
+        if (tagField.type.$ !== 'Literal') {
+            yield* err(`Tag field is not a literal`, type.loc);
+            return [];
+        }
+        const tag = tagField.type.value;
+        return [[tag, ref]] as const;
+    });
+    return A.ResolvedDecl(
+        node.name,
+        A.TypeDisjoint1(
+            new Map(resolved.flat()),
+            node.type.loc,
+        ),
+        node.params,
+    )
+};
+
+type Collector = (params: ReadonlySet<string>) => readonly string[]
+
+const collectAll = (nodes: readonly A.TopLevelType[]): Collector => params => {
+    return nodes.flatMap(node => collectRefs(node)(params));
+};
+
+const collectRefs = A.makeVisitor<A.TopLevelType, Collector>()({
+    Undefined: () => () => [],
+    Boolean: () => () => [],
+    Number: () => () => [],
+    Bigint: () => () => [],
+    String: () => () => [],
+    Literal: () => () => [],
+    Ref: node => params => {
+        const childrenRefs = collectAll(node.params)(params);
+        if (params.has(node.name)) {
+            return childrenRefs;
+        } else {
+            return [node.name, ...childrenRefs];
+        }
+    },
+    Disjoint: node => params => {
+        return collectAll(node.children)(params);
+    },
+    OneOf: () => () => [],
+    Array: node => collectRefs(node.child),
+    Tuple: node => params => {
+        return collectAll(node.children)(params);
+    },
+    Object: node => params => {
+        const types = [...node.fields.values()].map(field => field.type);
+        return collectAll(types)(params);
+    },
+    Map: node => params => {
+        return collectAll([node.key, node.value])(params);
+    },
+    Set: node => collectRefs(node.value),
+    Maybe: node => collectRefs(node.value),
 });

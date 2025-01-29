@@ -1,8 +1,12 @@
+import { makeMakeVisitor } from "../util/tricks";
+
+export const makeVisitor = makeMakeVisitor('$');
+
 export type Location = { readonly start: number; readonly end: number }
 export const Location = (start: number, end: number): Location => ({ start, end });
 
-export type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: TopLevelType; readonly params: readonly string[]; }
-export const TypeDecl = (name: string, type: TopLevelType, params: readonly string[]): TypeDecl => ({ $: 'TypeDecl', name, type, params });
+export type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: TopLevelType; readonly params: readonly string[]; loc: Location }
+export const TypeDecl = (name: string, type: TopLevelType, params: readonly string[], loc: Location): TypeDecl => ({ $: 'TypeDecl', name, type, params, loc });
 
 export type TopLevelType = Type | TypeObject | TypeDisjoint | TypeOneOf
 export type Type = TypeUndefined | TypeBoolean | TypeNumber | TypeBigint | TypeString | TypeLiteral | TypeArray | TypeTuple | TypeRef | TypeMap | TypeSet | TypeMaybe
@@ -39,3 +43,10 @@ export const TypeMaybe = (value: Type, loc: Location): TypeMaybe => ({ $: 'Maybe
 
 export type Field = { readonly name: string; readonly type: Type }
 export const Field = (name: string, type: Type): Field => ({ name, type });
+
+export type ResolvedDecl = { readonly $: 'ResolvedDecl'; readonly name: string; readonly type: ResolvedType; readonly params: readonly string[]; }
+export const ResolvedDecl = (name: string, type: ResolvedType, params: readonly string[]): ResolvedDecl => ({ $: 'ResolvedDecl', name, type, params });
+
+export type ResolvedType = Type | TypeObject | TypeDisjoint1 | TypeOneOf
+export type TypeDisjoint1 = { readonly $: 'Disjoint1', readonly children: ReadonlyMap<string, TypeRef>, loc: Location }
+export const TypeDisjoint1 = (children: ReadonlyMap<string, TypeRef>, loc: Location): TypeDisjoint1 => ({ $: 'Disjoint1', children, loc });

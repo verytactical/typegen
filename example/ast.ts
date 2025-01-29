@@ -401,7 +401,12 @@ export type AstExpression =
     | AstId
     | AstInitOf
     | AstString
-    | AstLiteral;
+    | AstLiteralExpression;
+
+export type AstLiteralExpression = {
+    readonly kind: 'literal_expression';
+    readonly value: AstLiteral;
+};
 
 export type AstLiteral =
     | AstNumber
@@ -722,27 +727,27 @@ export type AstReceiverKind =
     | AstReceiverBounce;
 
 export type AstNode =
+    // | AstExpression
+    // | AstStatement
+    // | AstTypeDecl
+    // | AstFunctionAttribute
+    // | AstType
+    // | AstReceiverKind
+    // | AstReceiverSubKind
     | AstFuncId
     | AstDestructMapping
     | AstDestructEnd
-    | AstExpression
-    | AstStatement
-    | AstTypeDecl
     | AstFieldDecl
     | AstTypedParameter
     | AstFunctionDef
-    | AstFunctionAttribute
     | AstAsmFunctionDef
     | AstFunctionDecl
     | AstModule
     | AstNativeFunctionDecl
     | AstStructFieldInitializer
     | AstStructFieldValue
-    | AstType
     | AstContractInit
     | AstReceiver
     | AstImport
     | AstConstantDef
     | AstConstantDecl
-    | AstReceiverKind
-    | AstReceiverSubKind;
