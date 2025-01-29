@@ -6,6 +6,8 @@ import { err as errRaw, traverse, Log, Sync as SyncRaw } from "../util/process";
 import { ShowAtLocation, showAtLocation } from "../util/source-error";
 import { tarjan } from "../util/tarjan";
 
+export type Decls = readonly (readonly A.TypeDecl[])[];
+
 export function* compileTypescript(node: t.File, disjointTag: string): Sync<Decls> {
     const decls = yield* compileFile(node);
     return yield* sort(decls, disjointTag);
@@ -17,7 +19,7 @@ const makeVisitor = makeMakeVisitor("type");
 type Sync<T> = SyncRaw<T, Log & ShowAtLocation>
 
 type RawLocation = { type: t.Node["type"]; start?: number | null; end?: number | null; }
-function* location(node: RawLocation) {
+function* location(node: RawLocation): Sync<A.Location> {
     if (typeof node.start !== 'number' || typeof node.end !== 'number') {
         // TODO: internal error + handler
         throw new Error(`Babel returned a node without location! ${node.type}`)
@@ -52,15 +54,19 @@ function* mustBeReadonly(node: t.Node, isReadonly: boolean): Sync<undefined> {
     }
 }
 
-function* compileFile(node: t.File): Sync<readonly A.TypeDecl[]> {
+type PreResolveType = A.Type | A.TypeObject | A.TypeOneOf | TypeDisjoint;
+type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: PreResolveType; readonly params: readonly string[]; loc: A.Location }
+const TypeDecl = (name: string, type: PreResolveType, params: readonly string[], loc: A.Location): TypeDecl => ({ $: 'TypeDecl', name, type, params, loc });
+
+function* compileFile(node: t.File): Sync<readonly TypeDecl[]> {
     return yield* compileDecls(node.program.body);
 }
 
-function* compileDecls(nodes: readonly t.Statement[]): Sync<readonly A.TypeDecl[]> {
+function* compileDecls(nodes: readonly t.Statement[]): Sync<readonly TypeDecl[]> {
     return filterUndefined(yield* traverse(nodes, compileDecl));
 };
 
-function* compileDecl(node: t.Statement): Sync<A.TypeDecl | undefined> {
+function* compileDecl(node: t.Statement): Sync<TypeDecl | undefined> {
     const loc = yield* location(node);
     if (!t.isExportNamedDeclaration(node)) {
         yield* err(`Only "export" are allowed, got ${node.type}`, loc);
@@ -78,7 +84,7 @@ function* compileDecl(node: t.Statement): Sync<A.TypeDecl | undefined> {
     if (decl.declare) {
         yield* err(`Declared types are not allowed`, loc);
     }
-    return A.TypeDecl(
+    return TypeDecl(
         decl.id.name,
         yield* compileTypeTopLevel(decl.typeAnnotation),
         yield* compileFormalParameters(decl.typeParameters),
@@ -86,7 +92,7 @@ function* compileDecl(node: t.Statement): Sync<A.TypeDecl | undefined> {
     );
 }
 
-function* compileTypeTopLevel(node: t.TSType): Sync<A.TopLevelType> {
+function* compileTypeTopLevel(node: t.TSType): Sync<PreResolveType> {
     if (t.isTSTypeLiteral(node)) {
         return yield* compileObject(node);
     } else if (t.isTSUnionType(node)) {
@@ -264,7 +270,10 @@ function* compileTupleElement(node: t.TSNamedTupleMember | t.TSType): Sync<A.Typ
     return yield* compileType(node.elementType, false, false);
 }
 
-function* compileUnion(node: t.TSUnionType): Sync<A.TypeDisjoint | A.TypeOneOf | A.TypeRef | A.TypeMaybe> {
+type TypeDisjoint = { readonly $: 'Disjoint', readonly children: readonly A.TypeRef[], loc: A.Location }
+const TypeDisjoint = (children: readonly A.TypeRef[], loc: A.Location): TypeDisjoint => ({ $: 'Disjoint', children, loc });
+
+function* compileUnion(node: t.TSUnionType): Sync<TypeDisjoint | A.TypeOneOf | A.TypeRef | A.TypeMaybe> {
     const loc = yield* location(node);
     const children = yield* traverse(node.types, type => compileType(type, false, false));
     if (children.length === 0) {
@@ -290,7 +299,7 @@ function* compileUnion(node: t.TSUnionType): Sync<A.TypeDisjoint | A.TypeOneOf |
         }
     }
     if (refs.length === children.length) {
-        return A.TypeDisjoint(refs, loc);
+        return TypeDisjoint(refs, loc);
     } else if (literals.length === children.length) {
         return A.TypeOneOf(literals, loc);
     } else {
@@ -376,10 +385,8 @@ const compileTypeCtx = makeVisitor<t.TSType, (ctx: Context) => Sync<A.Type>>()({
     TSImportType: badType,
 });
 
-export type Decls = readonly (readonly A.ResolvedDecl[])[]
-
 function* sort(
-    decls: readonly A.TypeDecl[],
+    decls: readonly TypeDecl[],
     disjointTag: string
 ): Sync<Decls> {
     const rawDeclMap = new Map(decls.map(decl => [
@@ -396,7 +403,7 @@ function* sort(
         decl.name,
         collectRefs(decl.type)(new Set(decl.params))
     ] as const));
-    const sortedDecls = tarjan(dependencies).map((group): readonly A.ResolvedDecl[] => {
+    const sortedDecls = tarjan(dependencies).map((group): readonly A.TypeDecl[] => {
         return group.map(declName => {
             const decl = declMap.get(declName);
             if (!decl) {
@@ -410,12 +417,12 @@ function* sort(
 }
 
 function* ensureAdt(
-    node: A.TypeDecl,
-    decls: ReadonlyMap<string, A.TypeDecl>,
+    node: TypeDecl,
+    decls: ReadonlyMap<string, TypeDecl>,
     disjointTag: string,
-): Sync<A.ResolvedDecl> {
+): Sync<A.TypeDecl> {
     if (node.type.$ !== 'Disjoint') {
-        return A.ResolvedDecl(node.name, node.type, node.params);
+        return A.TypeDecl(node.name, node.type, node.params, node.loc);
     }
     const resolved = yield* traverse(node.type.children, function* (ref): Sync<readonly [string, A.TypeRef][]> {
         const referred = decls.get(ref.name);
@@ -441,23 +448,24 @@ function* ensureAdt(
         const tag = tagField.type.value;
         return [[tag, ref]] as const;
     });
-    return A.ResolvedDecl(
+    return A.TypeDecl(
         node.name,
-        A.TypeDisjoint1(
+        A.TypeDisjoint(
             new Map(resolved.flat()),
             node.type.loc,
         ),
         node.params,
+        node.loc,
     )
 };
 
 type Collector = (params: ReadonlySet<string>) => readonly string[]
 
-const collectAll = (nodes: readonly A.TopLevelType[]): Collector => params => {
+const collectAll = (nodes: readonly PreResolveType[]): Collector => params => {
     return nodes.flatMap(node => collectRefs(node)(params));
 };
 
-const collectRefs = A.makeVisitor<A.TopLevelType, Collector>()({
+const collectRefs = A.makeVisitor<PreResolveType, Collector>()({
     Undefined: () => () => [],
     Boolean: () => () => [],
     Number: () => () => [],

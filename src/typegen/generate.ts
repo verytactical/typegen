@@ -8,17 +8,15 @@ export function* generate(decls: Decls): Sync<string, Log> {
     return '';
 }
 
-const generateDecl = A.makeVisitor<A.ResolvedType, readonly t.Statement[]>()({
-    Disjoint1: node => {
-        // return collectAll(node.children)(params);
-        return [];
-    },
+const generateDecl = A.makeVisitor<A.TopLevelType, readonly t.Statement[]>()({
     Object: node => {
-        const types = [...node.fields.values()].map(field => field.type);
+        const types = [...node.fields.values()]
+            .map(field => field.type);
         // return collectAll(types)(params);
         return [];
     },
 
+    Disjoint: () => [],
     OneOf: () => [],
     Undefined: () => [],
     Boolean: () => [],
@@ -32,4 +30,4 @@ const generateDecl = A.makeVisitor<A.ResolvedType, readonly t.Statement[]>()({
     Map: () => [],
     Set: () => [],
     Maybe: () => [],
-})
+});

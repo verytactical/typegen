@@ -24,8 +24,8 @@ export type TypeLiteral = { readonly $: 'Literal', value: string, loc: Location 
 export const TypeLiteral = (value: string, loc: Location): TypeLiteral => ({ $: 'Literal', value, loc });
 export type TypeRef = { readonly $: 'Ref', readonly name: string, readonly params: readonly Type[], loc: Location }
 export const TypeRef = (name: string, params: readonly Type[], loc: Location): TypeRef => ({ $: 'Ref', name, params, loc });
-export type TypeDisjoint = { readonly $: 'Disjoint', readonly children: readonly TypeRef[], loc: Location }
-export const TypeDisjoint = (children: readonly TypeRef[], loc: Location): TypeDisjoint => ({ $: 'Disjoint', children, loc });
+export type TypeDisjoint = { readonly $: 'Disjoint', readonly children: ReadonlyMap<string, TypeRef>, loc: Location }
+export const TypeDisjoint = (children: ReadonlyMap<string, TypeRef>, loc: Location): TypeDisjoint => ({ $: 'Disjoint', children, loc });
 export type TypeOneOf = { readonly $: 'OneOf', readonly children: readonly string[], loc: Location }
 export const TypeOneOf = (children: readonly string[], loc: Location): TypeOneOf => ({ $: 'OneOf', children, loc });
 export type TypeArray = { readonly $: 'Array', readonly child: Type; loc: Location }
@@ -43,10 +43,3 @@ export const TypeMaybe = (value: Type, loc: Location): TypeMaybe => ({ $: 'Maybe
 
 export type Field = { readonly name: string; readonly type: Type }
 export const Field = (name: string, type: Type): Field => ({ name, type });
-
-export type ResolvedDecl = { readonly $: 'ResolvedDecl'; readonly name: string; readonly type: ResolvedType; readonly params: readonly string[]; }
-export const ResolvedDecl = (name: string, type: ResolvedType, params: readonly string[]): ResolvedDecl => ({ $: 'ResolvedDecl', name, type, params });
-
-export type ResolvedType = Type | TypeObject | TypeDisjoint1 | TypeOneOf
-export type TypeDisjoint1 = { readonly $: 'Disjoint1', readonly children: ReadonlyMap<string, TypeRef>, loc: Location }
-export const TypeDisjoint1 = (children: ReadonlyMap<string, TypeRef>, loc: Location): TypeDisjoint1 => ({ $: 'Disjoint1', children, loc });
