@@ -160,7 +160,7 @@ export const catchInternalErrorsAsync = <A extends any[], R, C>(fn: (...args: A)
  * Run process on every element of an array
  */
 export function* traverse<T, U, C>(
-    values: T[],
+    values: readonly T[],
     fn: (u: T) => Sync<U, C>
 ): Sync<U[], C> {
     const result: U[] = [];

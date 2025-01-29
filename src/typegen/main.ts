@@ -1,15 +1,17 @@
-import { join, relative } from "path";
-import { glob, readFile } from "fs/promises";
+import { z } from "zod";
+import { basename, dirname, extname, join, relative } from "path";
+import { glob, readFile, writeFile } from "fs/promises";
 import { parseTypeScript } from "./babel";
 import { compileTypescript } from "./decode";
 import { $ast, grammar } from './cli-grammar';
 import { Async, Info, info, Log } from "../util/process";
-import { z } from "zod";
 import { runCli } from "../util/cli";
 import { ShowAtLocation, withSourceAsync } from "../util/source-error";
 import { cwd } from "process";
 import { inspect } from "util";
 import { sort } from "./sort";
+import { generate } from "./generate";
+import { TypeDecl } from "./ast";
 
 export const main = () => runCli(grammar, {
     Compile: compile,
@@ -17,27 +19,43 @@ export const main = () => runCli(grammar, {
     Help: showHelp,
 });
 
+const tsExtension = '.ts';
+
 async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
     // TODO: run parallel
     for await (const filePath of glob(pattern)) {
+        const outputDir = join(dirname(filePath), 'generated');
+        const getPath = (suffix: string) => join(
+            outputDir,
+            basename(filePath, tsExtension) + '.' + suffix + tsExtension
+        );
+        const extension = extname(filePath);
+        if (extension !== tsExtension) {
+            return;
+        }
         // TODO: wrap FS errors (src/typegen/fs.ts)
         const source = await readFile(filePath, "utf-8");
-        yield* withSourceAsync(
+        const decls = yield* withSourceAsync(
             resolve(filePath),
             source,
-            compileOne,
+            parse,
         )(source);
+        if (!decls) {
+            return;
+        }
+        const sortedDecls = sort(decls);
+        const declPath = getPath('cons');
+        await writeFile(declPath, yield* generate(sortedDecls))
+        // yield* info(displayJson(sortedDecls));
     }
 }
 
-async function* compileOne(source: string): Async<void, Log & ShowAtLocation> {
+async function* parse(source: string): Async<undefined | readonly TypeDecl[], Log & ShowAtLocation> {
     const ast = yield* parseTypeScript(source);
     if (!ast) {
         return;
     }
-    const decls = yield* compileTypescript(ast);
-    const sortedDecls = sort(decls);
-    yield* info(displayJson(sortedDecls));
+    return yield* compileTypescript(ast);
 }
 
 const displayJson = (obj: unknown) => inspect(obj, { colors: true, depth: Infinity });

@@ -5,7 +5,7 @@ import * as A from "./ast";
 // visitor for our AST
 const makeVisitor = makeMakeVisitor('$');
 
-export function sort(decls: A.TypeDecl[]) {
+export function sort(decls: readonly A.TypeDecl[]): readonly (readonly A.TypeDecl[])[] {
     const declMap = new Map(decls.map(decl => [
         decl.name,
         decl,
@@ -26,11 +26,11 @@ export function sort(decls: A.TypeDecl[]) {
 
 type Collector = (params: ReadonlySet<string>) => readonly string[]
 
-const collectAll = (nodes: readonly A.Type[]): Collector => params => {
+const collectAll = (nodes: readonly A.TopLevelType[]): Collector => params => {
     return nodes.flatMap(node => collectRefs(node)(params));
 };
 
-export const collectRefs = makeVisitor<A.Type, Collector>()({
+export const collectRefs = makeVisitor<A.TopLevelType, Collector>()({
     Undefined: () => () => [],
     Boolean: () => () => [],
     Number: () => () => [],

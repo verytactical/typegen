@@ -1,10 +1,11 @@
 export type Location = { readonly start: number; readonly end: number }
 export const Location = (start: number, end: number): Location => ({ start, end });
 
-export type TypeDecl = { readonly $: 'TypeDecl'; name: string; type: Type; params: readonly string[]; }
-export const TypeDecl = (name: string, type: Type, params: string[]): TypeDecl => ({ $: 'TypeDecl', name, type, params });
+export type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: TopLevelType; readonly params: readonly string[]; }
+export const TypeDecl = (name: string, type: TopLevelType, params: readonly string[]): TypeDecl => ({ $: 'TypeDecl', name, type, params });
 
-export type Type = TypeUndefined | TypeBoolean | TypeNumber | TypeBigint | TypeString | TypeLiteral | TypeArray | TypeTuple | TypeObject | TypeDisjoint | TypeOneOf | TypeRef | TypeMap | TypeSet | TypeMaybe
+export type TopLevelType = Type | TypeObject | TypeDisjoint | TypeOneOf
+export type Type = TypeUndefined | TypeBoolean | TypeNumber | TypeBigint | TypeString | TypeLiteral | TypeArray | TypeTuple | TypeRef | TypeMap | TypeSet | TypeMaybe
 export type TypeUndefined = { readonly $: 'Undefined', loc: Location }
 export const TypeUndefined = (loc: Location): TypeUndefined => ({ $: 'Undefined', loc });
 export type TypeBoolean = { readonly $: 'Boolean', loc: Location }

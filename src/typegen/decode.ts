@@ -48,11 +48,11 @@ function* mustBeReadonly(node: t.Node, isReadonly: boolean): Sync<undefined> {
     }
 }
 
-function* compileFile(node: t.File): Sync<A.TypeDecl[]> {
+function* compileFile(node: t.File): Sync<readonly A.TypeDecl[]> {
     return yield* compileDecls(node.program.body);
 }
 
-function* compileDecls(nodes: t.Statement[]): Sync<A.TypeDecl[]> {
+function* compileDecls(nodes: readonly t.Statement[]): Sync<readonly A.TypeDecl[]> {
     return filterUndefined(yield* traverse(nodes, compileDecl));
 };
 
@@ -76,12 +76,22 @@ function* compileDecl(node: t.Statement): Sync<A.TypeDecl | undefined> {
     }
     return A.TypeDecl(
         decl.id.name,
-        yield* compileType(decl.typeAnnotation, false, true),
+        yield* compileTypeTopLevel(decl.typeAnnotation),
         yield* compileFormalParameters(decl.typeParameters),
     );
 }
 
-function* compileFormalParameters(node: t.TSTypeParameterDeclaration | undefined | null): Sync<string[]> {
+function* compileTypeTopLevel(node: t.TSType): Sync<A.TopLevelType> {
+    if (t.isTSTypeLiteral(node)) {
+        return yield* compileObject(node);
+    } else if (t.isTSUnionType(node)) {
+        return yield* compileUnion(node);
+    } else {
+        return yield* compileType(node, false, true)
+    }
+}
+
+function* compileFormalParameters(node: t.TSTypeParameterDeclaration | undefined | null): Sync<readonly string[]> {
     return yield* traverse(node?.params ?? [], compileFormalParameter);
 };
 
@@ -102,7 +112,7 @@ function* compileFormalParameter(node: t.TSTypeParameter): Sync<string> {
     return node.name;
 };
 
-function* compileFactualParameters(node: t.TSTypeParameterInstantiation | undefined | null): Sync<A.Type[]> {
+function* compileFactualParameters(node: t.TSTypeParameterInstantiation | undefined | null): Sync<readonly A.Type[]> {
     return yield* traverse(node?.params ?? [], node => compileType(node, false, false));
 };
 
@@ -215,13 +225,8 @@ const compileReference: TypeHandler<t.TSTypeReference> = node => function* (c) {
     }
 }
 
-const compileObject: TypeHandler<t.TSTypeLiteral> = node => function* (c) {
+function* compileObject(node: t.TSTypeLiteral): Sync<A.TypeObject | A.TypeRef> {
     const loc = yield* location(node);
-    yield* noReadonly(node, c.isReadonly);
-    if (!c.isTopLevel) {
-        yield* err('Objects are allowed only as direct child of `export type`', loc);
-        return A.TypeRef("ERROR", [], loc);
-    }
     const fields = yield* traverse(node.members, member => compileField(member));
     const fieldsRecord = new Map(
         fields.map(field => [field.name, field] as const)
@@ -254,9 +259,8 @@ function* compileTupleElement(node: t.TSNamedTupleMember | t.TSType): Sync<A.Typ
     return yield* compileType(node.elementType, false, false);
 }
 
-const compileUnion: TypeHandler<t.TSUnionType> = node => function* (c) {
+function* compileUnion(node: t.TSUnionType): Sync<A.TypeDisjoint | A.TypeOneOf | A.TypeRef | A.TypeMaybe> {
     const loc = yield* location(node);
-    yield* noReadonly(node, c.isReadonly);
     const children = yield* traverse(node.types, type => compileType(type, false, false));
     if (children.length === 0) {
         yield* err("Union of no types doesn't make sense", loc);
@@ -270,28 +274,40 @@ const compileUnion: TypeHandler<t.TSUnionType> = node => function* (c) {
             return A.TypeRef("ERROR", [], loc);
         }
         return A.TypeMaybe(notUndef, loc);
-    } else if (c.isTopLevel) {
-        const refs: A.TypeRef[] = [];
-        const literals: string[] = [];
-        for (const child of children) {
-            if (child.$ === 'Ref') {
-                refs.push(child);
-            } else if (child.$ === 'Literal') {
-                literals.push(child.value);
-            }
+    }
+    const refs: A.TypeRef[] = [];
+    const literals: string[] = [];
+    for (const child of children) {
+        if (child.$ === 'Ref') {
+            refs.push(child);
+        } else if (child.$ === 'Literal') {
+            literals.push(child.value);
         }
-        if (refs.length === children.length) {
-            return A.TypeDisjoint(refs, loc);
-        } else if (literals.length === children.length) {
-            return A.TypeOneOf(literals, loc);
-        } else {
-            yield* err("Only disjoint unions of objects and unions of string literals are allowed", loc);
-            return A.TypeRef("ERROR", [], loc);
-        }
+    }
+    if (refs.length === children.length) {
+        return A.TypeDisjoint(refs, loc);
+    } else if (literals.length === children.length) {
+        return A.TypeOneOf(literals, loc);
     } else {
-        yield* err("Union must be a direct child of `export type`", loc);
+        yield* err("Only disjoint unions of objects and unions of string literals are allowed", loc);
         return A.TypeRef("ERROR", [], loc);
     }
+}
+
+const compileMaybe: TypeHandler<t.TSUnionType> = node => function* (c) {
+    const loc = yield* location(node);
+    const children = yield* traverse(node.types, type => compileType(type, false, false));
+    if (children.length === 0) {
+        yield* err("Union of no types doesn't make sense", loc);
+        return A.TypeRef("ERROR", [], loc);
+    }
+    const undef = children.find(child => child.$ === 'Undefined');
+    const notUndef = children.find(child => child.$ !== 'Undefined');
+    if (children.length !== 2 || !undef || !notUndef) {
+        yield* err("Bad Maybe type: must have two branches", loc);
+        return A.TypeRef("ERROR", [], loc);
+    }
+    return A.TypeMaybe(notUndef, loc);
 }
 
 const badType: TypeHandler<t.TSType> = node => function* (c) {
@@ -323,12 +339,13 @@ const compileTypeCtx = makeVisitor<t.TSType, (ctx: Context) => Sync<A.Type>>()({
 
     TSLiteralType: compileLiteralType,
     TSTypeReference: compileReference,
-    TSTypeLiteral: compileObject,
     TSArrayType: compileArray,
     TSTupleType: compileTuple,
-    TSUnionType: compileUnion,
     TSTypeOperator: compileReadonly,
+    TSUnionType: compileMaybe,
 
+    TSTypeLiteral: badType,
+    
     TSNullKeyword: badType,
     TSObjectKeyword: badType,
     TSAnyKeyword: badType,
