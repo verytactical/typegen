@@ -5,8 +5,10 @@ export const makeVisitor = makeMakeVisitor('$');
 export type Location = { readonly start: number; readonly end: number }
 export const Location = (start: number, end: number): Location => ({ start, end });
 
-export type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: TopLevelType; readonly params: readonly string[]; loc: Location }
-export const TypeDecl = (name: string, type: TopLevelType, params: readonly string[], loc: Location): TypeDecl => ({ $: 'TypeDecl', name, type, params, loc });
+export type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: TopLevelType; readonly params: readonly Param[]; loc: Location }
+export const TypeDecl = (name: string, type: TopLevelType, params: readonly Param[], loc: Location): TypeDecl => ({ $: 'TypeDecl', name, type, params, loc });
+export type Param = { readonly $: 'Param'; readonly name: string; readonly loc: Location }
+export const Param = (name: string, loc: Location): Param => ({ $: 'Param', name, loc });
 
 export type TopLevelType = Type | TypeObject | TypeDisjoint | TypeOneOf
 export type Type = TypeUndefined | TypeBoolean | TypeNumber | TypeBigint | TypeString | TypeLiteral | TypeArray | TypeTuple | TypeRef | TypeMap | TypeSet | TypeMaybe

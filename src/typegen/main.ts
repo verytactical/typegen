@@ -43,10 +43,19 @@ async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
             return;
         }
         const declPath = getPath('cons');
+        // yield* info(displayJson(sortedDecls[0]));
+        const consCode = yield* generate(
+            sortedDecls,
+            importPath(filePath, declPath),
+            disjointTag,
+        );
         await mkdir(dirname(declPath), { recursive: true });
-        await writeFile(declPath, yield* generate(sortedDecls))
-        // yield* info(displayJson(sortedDecls));
+        await writeFile(declPath, consCode)
     }
+}
+
+function importPath(of: string, from: string) {
+    return relative(join(from, '..'), of)
 }
 
 async function* parse(source: string, disjointTag: string): Async<undefined | Decls, Log & ShowAtLocation> {

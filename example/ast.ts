@@ -1,3 +1,7 @@
+export type Either<L, R> = Left<L> | Right<R>
+export type Left<L> = { readonly kind: 'left', readonly left: L }
+export type Right<R> = { readonly kind: 'right', readonly right: R }
+
 export type ItemOrigin = 'stdlib' | 'user';
 
 export type Address = string

@@ -6,6 +6,8 @@ import { err as errRaw, traverse, Log, Sync as SyncRaw } from "../util/process";
 import { ShowAtLocation, showAtLocation } from "../util/source-error";
 import { tarjan } from "../util/tarjan";
 
+// TODO: "ERROR"
+
 export type Decls = readonly (readonly A.TypeDecl[])[];
 
 export function* compileTypescript(node: t.File, disjointTag: string): Sync<Decls> {
@@ -55,8 +57,8 @@ function* mustBeReadonly(node: t.Node, isReadonly: boolean): Sync<undefined> {
 }
 
 type PreResolveType = A.Type | A.TypeObject | A.TypeOneOf | TypeDisjoint;
-type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: PreResolveType; readonly params: readonly string[]; loc: A.Location }
-const TypeDecl = (name: string, type: PreResolveType, params: readonly string[], loc: A.Location): TypeDecl => ({ $: 'TypeDecl', name, type, params, loc });
+type TypeDecl = { readonly $: 'TypeDecl'; readonly name: string; readonly type: PreResolveType; readonly params: readonly A.Param[]; loc: A.Location }
+const TypeDecl = (name: string, type: PreResolveType, params: readonly A.Param[], loc: A.Location): TypeDecl => ({ $: 'TypeDecl', name, type, params, loc });
 
 function* compileFile(node: t.File): Sync<readonly TypeDecl[]> {
     return yield* compileDecls(node.program.body);
@@ -102,11 +104,11 @@ function* compileTypeTopLevel(node: t.TSType): Sync<PreResolveType> {
     }
 }
 
-function* compileFormalParameters(node: t.TSTypeParameterDeclaration | undefined | null): Sync<readonly string[]> {
+function* compileFormalParameters(node: t.TSTypeParameterDeclaration | undefined | null): Sync<readonly A.Param[]> {
     return yield* traverse(node?.params ?? [], compileFormalParameter);
 };
 
-function* compileFormalParameter(node: t.TSTypeParameter): Sync<string> {
+function* compileFormalParameter(node: t.TSTypeParameter): Sync<A.Param> {
     const loc = yield* location(node);
     if (node.in || node.out) {
         yield* err(`Variance params are not allowed`, loc);
@@ -120,7 +122,7 @@ function* compileFormalParameter(node: t.TSTypeParameter): Sync<string> {
     if (node.constraint) {
         yield* err(`"extends" is not allowed`, loc);
     }
-    return node.name;
+    return A.Param(node.name, loc);
 };
 
 function* compileFactualParameters(node: t.TSTypeParameterInstantiation | undefined | null): Sync<readonly A.Type[]> {
@@ -385,6 +387,12 @@ const compileTypeCtx = makeVisitor<t.TSType, (ctx: Context) => Sync<A.Type>>()({
     TSImportType: badType,
 });
 
+type ParamUsage = {
+    // intentionally mutable
+    used: boolean;
+    readonly param: A.Param;
+}
+
 function* sort(
     decls: readonly TypeDecl[],
     disjointTag: string
@@ -399,11 +407,19 @@ function* sort(
             yield* ensureAdt(decl, rawDeclMap, disjointTag),
         ] as const;
     }));
-    const dependencies = new Map(decls.map(decl => [
-        decl.name,
-        collectRefs(decl.type)(new Set(decl.params))
-    ] as const));
-    const sortedDecls = tarjan(dependencies).map((group): readonly A.TypeDecl[] => {
+    const dependencies = yield* traverse(decls, function* (decl): Sync<readonly [string, readonly string[]]> {
+        const usages = new Map<string, ParamUsage>(
+            decl.params.map(param => [param.name, { used: false, param }] as const)
+        );
+        const result = [decl.name, collectRefs(decl.type)(usages)] as const;
+        for (const [key, { used, param: { loc } }] of usages) {
+            if (!used) {
+                yield* err(`Parameter ${key} is unused`, loc);
+            }
+        }
+        return result;
+    });
+    const sortedDecls = tarjan(new Map(dependencies)).map((group): readonly A.TypeDecl[] => {
         return group.map(declName => {
             const decl = declMap.get(declName);
             if (!decl) {
@@ -432,7 +448,6 @@ function* ensureAdt(
         }
         const { type } = referred;
         if (type.$ !== 'Object') {
-            debugger;
             yield* err('Disjoint union must be composed of objects', ref.loc);
             return [];
         }
@@ -459,7 +474,7 @@ function* ensureAdt(
     )
 };
 
-type Collector = (params: ReadonlySet<string>) => readonly string[]
+type Collector = (params: Map<string, ParamUsage>) => readonly string[]
 
 const collectAll = (nodes: readonly PreResolveType[]): Collector => params => {
     return nodes.flatMap(node => collectRefs(node)(params));
@@ -474,7 +489,9 @@ const collectRefs = A.makeVisitor<PreResolveType, Collector>()({
     Literal: () => () => [],
     Ref: node => params => {
         const childrenRefs = collectAll(node.params)(params);
-        if (params.has(node.name)) {
+        const paramUsage = params.get(node.name);
+        if (paramUsage) {
+            paramUsage.used = true;
             return childrenRefs;
         } else {
             return [node.name, ...childrenRefs];
