@@ -12,6 +12,7 @@ export type Decls = readonly (readonly A.TypeDecl[])[];
 
 export function* compileTypescript(node: t.File, disjointTag: string): Sync<Decls> {
     const decls = yield* compileFile(node);
+    // return [decls as any];
     return yield* sort(decls, disjointTag);
 }
 
@@ -424,7 +425,7 @@ function* sort(
             const decl = declMap.get(declName);
             if (!decl) {
                 // FIXME: internal error
-                throw new Error('Tarjan lost nodes');
+                throw new Error(`Tarjan lost nodes ${declName}`);
             }
             return decl;
         });

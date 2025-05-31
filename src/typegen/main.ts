@@ -42,6 +42,8 @@ async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
         if (!sortedDecls) {
             return;
         }
+        yield* info(displayJson(sortedDecls));
+        // process.exit();
         const declPath = getPath('cons');
         // yield* info(displayJson(sortedDecls[0]));
         const consCode = yield* generate(
@@ -50,7 +52,7 @@ async function* compile({ pattern }: $ast.Compile): Async<void, Log> {
             disjointTag,
         );
         await mkdir(dirname(declPath), { recursive: true });
-        await writeFile(declPath, consCode)
+        await writeFile(declPath, consCode);
     }
 }
 
